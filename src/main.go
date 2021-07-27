@@ -1,33 +1,48 @@
 package main
 
 import (
-	"flag"
+	"fmt"
+	log "github.com/sirupsen/logrus"
 	"math/rand"
 	"os"
 	"time"
 )
 
 var (
-	help     bool
+	// help     bool
 	testName string
+	f        *os.File
 )
 
 func init() {
-	flag.BoolVar(&help, "help", false, "help")
-	flag.StringVar(&testName, "test", "", "which test(s) do you want to run: basic/advance/all")
+	// flag.BoolVar(&help, "help", false, "help")
+	// flag.StringVar(&testName, "test", "", "which test(s) do you want to run: basic/advance/all")
+	//
+	// flag.Usage = usage
+	// flag.Parse()
+	//
+	// if help || (testName != "basic" && testName != "advance" && testName != "all") {
+	// 	flag.Usage()
+	// 	os.Exit(0)
+	// }
 
-	flag.Usage = usage
-	flag.Parse()
-
-	if help || (testName != "basic" && testName != "advance" && testName != "all") {
-		flag.Usage()
-		os.Exit(0)
+	testName = "all"
+	var err error
+	f, err = os.Create("log.txt")
+	if err != nil {
+		fmt.Println("Failed to create log file.")
+		return
 	}
+	log.SetOutput(f)
+	log.SetLevel(log.ErrorLevel)
 
 	rand.Seed(time.Now().UnixNano())
 }
 
 func main() {
+	// mytest()
+	// return
+
 	_, _ = yellow.Println("Welcome to DHT-2020 Test Program!\n")
 
 	var basicFailRate float64
@@ -108,8 +123,10 @@ func main() {
 	} else {
 		_, _ = green.Printf("Quit & Stabilize test passed with fail rate %.4f\n", QASFailRate)
 	}
+
+	_ = f.Close()
 }
 
-func usage() {
-	flag.PrintDefaults()
-}
+// func usage() {
+// 	flag.PrintDefaults()
+// }

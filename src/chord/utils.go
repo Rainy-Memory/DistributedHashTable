@@ -2,17 +2,34 @@ package chord
 
 import (
 	"crypto/sha1"
+	"errors"
 	log "github.com/sirupsen/logrus"
 	"math/big"
+	"net"
 	"net/rpc"
 	"time"
 )
 
 const (
-	attempt       = 3
-	dialPauseTime = time.Second / 2
-	pingPauseTime = time.Second / 2
+	M                 = 160
+	NULL              = ""
+	attempt           = 3
+	SuccessorListLen  = 5
+	dialPauseTime     = 500 * time.Millisecond
+	pingPauseTime     = 500 * time.Millisecond
+	maintainPauseTime = 100 * time.Millisecond
 )
+
+var (
+	two     = big.NewInt(2)
+	mod     = new(big.Int).Exp(two, big.NewInt(int64(M)), nil)
+	ordinal = [attempt]string{"first", "second", "third"}
+)
+
+type Pair struct {
+	First  string
+	Second string
+}
 
 func id(x string) (ret *big.Int) {
 	h := sha1.New()
@@ -22,33 +39,67 @@ func id(x string) (ret *big.Int) {
 	return
 }
 
+func powOf2(power int) *big.Int {
+	return new(big.Int).Exp(two, big.NewInt(int64(power)), nil)
+}
+
+func start(nId *big.Int, i int) *big.Int {
+	return new(big.Int).Mod(new(big.Int).Add(nId, powOf2(i)), mod)
+}
+
 func within(tar, start, end *big.Int, endClosed bool) bool {
-	if endClosed {
-		return start.Cmp(tar) < 0 && tar.Cmp(end) <= 0
+	if start.Cmp(end) < 0 {
+		if endClosed {
+			return start.Cmp(tar) < 0 && tar.Cmp(end) <= 0
+		} else {
+			return start.Cmp(tar) < 0 && tar.Cmp(end) < 0
+		}
 	} else {
-		return start.Cmp(tar) < 0 && tar.Cmp(end) < 0
+		if endClosed {
+			return start.Cmp(tar) < 0 || tar.Cmp(end) <= 0
+		} else {
+			return start.Cmp(tar) < 0 || tar.Cmp(end) < 0
+		}
 	}
 }
 
-func Dial(addr string) (*rpc.Client, bool) {
+func Dial(addr string) (*rpc.Client, error) {
+	if addr == NULL {
+		log.Errorf("Dial a null address.")
+		return nil, errors.New("dial a null address")
+	}
+	var client *rpc.Client
+	errorChannel := make(chan error)
 	for i := 0; i < attempt; i++ {
-		client, err := rpc.Dial("tcp", addr)
-		if err == nil {
-			return client, true
-		} else {
-			time.Sleep(dialPauseTime)
+		go func() {
+			var err error
+			client, err = rpc.Dial("tcp", addr)
+			errorChannel <- err
+		}()
+		select {
+		case err := <-errorChannel:
+			if err == nil {
+				log.Tracef("Dial address %v success.", addr)
+				return client, nil
+			} else {
+				log.Tracef("Dial address [%v] failed, error message: [%v]", addr, err)
+				return nil, err
+			}
+		case <-time.After(dialPauseTime):
+			log.Tracef("Dial address %v the %v time encountered a time out error.", addr, ordinal[i])
 		}
 	}
-	return nil, false
+	log.Errorf("Dial address %v time out.", addr)
+	return nil, errors.New("dial time out")
 }
 
 func Ping(addr string) bool {
-	var ordinal = [3]string{"first", "second", "third"}
-	if addr == "" {
+	if addr == NULL {
+		log.Tracef("Ping a null address.")
 		return false
 	}
+	errorChannel := make(chan error)
 	for i := 0; i < attempt; i++ {
-		errorChannel := make(chan error)
 		go func() {
 			client, err := rpc.Dial("tcp", addr)
 			if err == nil {
@@ -59,16 +110,58 @@ func Ping(addr string) bool {
 		select {
 		case err := <-errorChannel:
 			if err == nil {
-				log.Infof("[Info] Ping address %v success.", addr)
+				log.Tracef("Ping address %v success.", addr)
 				return true
 			} else {
-				log.Error(err)
+				log.Tracef("Ping address [%v] failed, error message: [%v]", addr, err)
+				return false
 			}
 		case <-time.After(pingPauseTime):
-			log.Errorf("[Error] Ping address %v the %v time encountered a time out error.", addr, ordinal[i])
+			log.Tracef("Ping address %v the %v time encountered a time out error.", addr, ordinal[i])
 		}
-		close(errorChannel)
 	}
-	log.Errorf("[Error] Ping address %v failed.", addr)
+	log.Errorf("Ping address %v time out.", addr)
 	return false
+}
+
+func logErrorFunctionCall(addr, fromFunc, toFunc string, err error) {
+	log.Errorf("[Addr:%v] In call from [%v] to [%v] failed, error message: [%v].", addr, fromFunc, toFunc, err)
+}
+
+func CloseClient(client *rpc.Client) {
+	err := client.Close()
+	if err != nil {
+		log.Errorf("[Error] Close client failed, error message: [%v]", err)
+	}
+}
+
+func Accept(server *rpc.Server, listener net.Listener, n *ChordNode) {
+	for {
+		conn, err := listener.Accept()
+		select {
+		case <-n.quitSignal:
+			return
+		default:
+			if err != nil {
+				log.Print("rpc.Serve: accept:", err.Error())
+				return
+			}
+			go server.ServeConn(conn)
+		}
+	}
+}
+
+func RPCCall(addr string, serviceMethod string, args interface{}, reply interface{}) error {
+	client, err := Dial(addr)
+	if err != nil {
+		log.Errorf("Dial address [%v] failed in RPCCall, error message: [%v].", addr, err)
+		return err
+	}
+	defer CloseClient(client)
+	err = client.Call(serviceMethod, args, reply)
+	if err != nil {
+		log.Errorf("Calling function [%v] failed in RPCCall, error message: [%v].", serviceMethod, err)
+		return err
+	}
+	return nil
 }

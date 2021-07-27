@@ -59,7 +59,7 @@ func basicTest() (bool, int, int) {
 				joinInfo.success()
 			}
 			nodesInNetwork = append(nodesInNetwork, nextJoinNode)
-
+			// fmt.Println(j)
 			time.Sleep(basicTestJoinQuitSleepTime)
 			nextJoinNode++
 		}
