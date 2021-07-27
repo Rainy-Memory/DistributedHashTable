@@ -50,7 +50,6 @@ func (n *ChordNode) FindSuccessor(kId *big.Int, ret *string) error {
 		*ret = suc
 		return nil
 	}
-	// return RPCCall(suc, "ChordNode.FindSuccessor", kId, ret)
 	var cpf string
 	cpf, err = n.closestPrecedingFinger(kId)
 	if err != nil {
@@ -84,21 +83,8 @@ func (n *ChordNode) FirstAvailableSuccessor(_ string, ret *string) error {
 			return nil
 		}
 	}
-	// n.sucLock.RLock()
-	// log.Debugln("[debug]", n.successorList)
-	// n.sucLock.RUnlock()
 	*ret = NULL
 	return errors.New("no available successor")
-	// n.sucLock.RLock()
-	// defer n.sucLock.RUnlock()
-	// for i := 0; i < SuccessorListLen; i++ {
-	// 	if Ping(n.successorList[i]) {
-	// 		*ret = n.successorList[i]
-	// 		return nil
-	// 	}
-	// }
-	// *ret = NULL
-	// return errors.New("no available successor")
 }
 
 func (n *ChordNode) closestPrecedingFinger(kId *big.Int) (string, error) {
@@ -145,12 +131,12 @@ func (n *ChordNode) initializeServer() {
 	n.server = rpc.NewServer()
 	err := n.server.Register(n)
 	if err != nil {
-		logErrorFunctionCall(n.addr, "ChordNode.run", "rpc.Server.Register", err)
+		logErrorFunctionCall(n.addr, "ChordNode.initializeServer", "rpc.Server.Register", err)
 		return
 	}
 	n.listener, err = net.Listen("tcp", n.addr)
 	if err != nil {
-		logErrorFunctionCall(n.addr, "ChordNode.run", "net.Listen", err)
+		logErrorFunctionCall(n.addr, "ChordNode.initializeServer", "net.Listen", err)
 		return
 	}
 	go Accept(n.server, n.listener, n)
@@ -197,7 +183,6 @@ func (n *ChordNode) stabilize() {
 			n.successorList[cnt] = list[i-1]
 			cnt++
 		}
-		// n.successorList[i] = list[i-1]
 	}
 	n.sucLock.Unlock()
 	_ = RPCCall(suc, "ChordNode.Notify", n.addr, nil)
@@ -368,19 +353,19 @@ func (n *ChordNode) join(addr string) bool {
 	n.fingerTable[0] = suc
 	log.Infof("Set node [%v]'s finger table %vth element to [%v].", n.addr, 0, suc)
 	n.fingerLock.Unlock()
-	// nId := id(n.addr)
-	// for i := 1; i < M; i++ {
-	// 	var finI string
-	// 	err = RPCCall(suc, "ChordNode.FindSuccessor", start(nId, i), &finI)
-	// 	if err != nil {
-	// 		logErrorFunctionCall(n.addr, "ChordNode.join", "ChordNode.FindSuccessor", err)
-	// 		finI = NULL
-	// 	}
-	// 	n.fingerLock.Lock()
-	// 	n.fingerTable[i] = finI
-	// 	log.Infof("Set node [%v]'s finger table %vth element to [%v].", n.addr, i, finI)
-	// 	n.fingerLock.Unlock()
-	// }
+	nId := id(n.addr)
+	for i := 1; i < M; i++ {
+		var finI string
+		err = RPCCall(suc, "ChordNode.FindSuccessor", start(nId, i), &finI)
+		if err != nil {
+			logErrorFunctionCall(n.addr, "ChordNode.join", "ChordNode.FindSuccessor", err)
+			finI = NULL
+		}
+		n.fingerLock.Lock()
+		n.fingerTable[i] = finI
+		log.Infof("Set node [%v]'s finger table %vth element to [%v].", n.addr, i, finI)
+		n.fingerLock.Unlock()
+	}
 	n.onlineLock.Lock()
 	n.online = true
 	n.onlineLock.Unlock()
@@ -502,13 +487,13 @@ func (n *ChordNode) put(key string, val string) bool {
 	var tar string
 	err := n.FindSuccessor(id(key), &tar)
 	if err != nil {
-		logErrorFunctionCall(n.addr, "ChordNode.Put", "ChordNode.FindSuccessor", err)
+		logErrorFunctionCall(n.addr, "ChordNode.put", "ChordNode.FindSuccessor", err)
 		return false
 	}
 	log.Infof("Found key [%v]'s successor [%v].", key, tar)
 	err = RPCCall(tar, "ChordNode.PutInStore", Pair{First: key, Second: val}, nil)
 	if err != nil {
-		logErrorFunctionCall(n.addr, "ChordNode.Put", "ChordNode.PutInStore", err)
+		logErrorFunctionCall(n.addr, "ChordNode.put", "ChordNode.PutInStore", err)
 		return false
 	}
 	return true
@@ -547,13 +532,13 @@ func (n *ChordNode) get(key string) (ok bool, val string) {
 	var tar string
 	err := n.FindSuccessor(id(key), &tar)
 	if err != nil {
-		logErrorFunctionCall(n.addr, "ChordNode.Get", "ChordNode.FindSuccessor", err)
+		logErrorFunctionCall(n.addr, "ChordNode.get", "ChordNode.FindSuccessor", err)
 		return false, NULL
 	}
 	log.Infof("Found key [%v]'s successor [%v].", key, tar)
 	err = RPCCall(tar, "ChordNode.GetInStore", key, &val)
 	if err != nil {
-		logErrorFunctionCall(tar, "ChordNode.Get", "ChordNode.GetInStore", err)
+		logErrorFunctionCall(tar, "ChordNode.get", "ChordNode.GetInStore", err)
 		return false, NULL
 	}
 	ok = true
@@ -582,13 +567,13 @@ func (n *ChordNode) delete(key string) bool {
 	var tar string
 	err := n.FindSuccessor(id(key), &tar)
 	if err != nil {
-		logErrorFunctionCall(n.addr, "ChordNode.Delete", "ChordNode.FindSuccessor", err)
+		logErrorFunctionCall(n.addr, "ChordNode.delete", "ChordNode.FindSuccessor", err)
 		return false
 	}
 	log.Infof("Found key [%v]'s successor [%v].", key, tar)
 	err = RPCCall(tar, "ChordNode.DeleteInStore", key, nil)
 	if err != nil {
-		logErrorFunctionCall(tar, "ChordNode.Delete", "ChordNode.DeleteInStore", err)
+		logErrorFunctionCall(tar, "ChordNode.delete", "ChordNode.DeleteInStore", err)
 		return false
 	}
 	return true
