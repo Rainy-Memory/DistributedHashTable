@@ -4,21 +4,10 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
 )
-
-func GetLineAndSeparate() []string {
-	reader := bufio.NewReader(os.Stdin)
-	text, err := reader.ReadString('\n')
-	if err != nil {
-		fmt.Printf("Error occurred! Error message: [%v].\n", err)
-		return nil
-	}
-	return strings.Fields(text)
-}
 
 func GetLine() string {
 	reader := bufio.NewReader(os.Stdin)
@@ -61,12 +50,6 @@ func GetArgInScope(scope []string) string {
 	}
 }
 
-/*
-storage format:
-{[name] message number} -> chatroom [name] message number
-{[name] [number]}       -> chatroom [name] No.[number] message
-*/
-
 func RunChatRoomCommandLine() {
 	fmt.Println("Welcome to dht chat room!")
 	fmt.Println("Before using it, you are required to take a few steps to register.")
@@ -107,7 +90,8 @@ func RunChatRoomCommandLine() {
 	fmt.Println("Input \"help\" to get more information.")
 	flag := true
 	for flag {
-		args := GetLineAndSeparate()
+		text := GetLine()
+		args := strings.Fields(text)
 		if len(args) == 0 {
 			continue
 		}
@@ -134,17 +118,43 @@ func RunChatRoomCommandLine() {
 				fmt.Println("Wrong argument number!")
 				break
 			}
-			have, _ := node.Get(appHash(args[1] + " message number"))
+			roomName := args[1]
+			have, _ := node.GetMessageNumber(roomName)
 			if have {
 				fmt.Println("This room is already exist! You can enter it directly.")
 				break
 			}
-			ok := node.Put(appHash(args[1]+" message number"), "0")
-			if ok {
-				fmt.Println("Successfully created chatroom.")
-			} else {
+			ok := node.NewRoom(roomName)
+			if !ok {
 				fmt.Println("Create chatroom failed.")
+				break
 			}
+			roomPrivateKey, roomPublicKey := GenerateRSAKey(RSABits)
+			node.PutRoomPublicKey(roomName, roomPublicKey)
+			go func() {
+				num := 0
+				for {
+					newNum := node.GetUserNumber(roomName)
+					if newNum > num {
+						for i := num + 1; i <= newNum; i++ {
+							userPublicKey := node.GetUserPublicKey(roomName, i)
+							node.DeleteUserPublicKey(roomName, i)
+							for j := 0; j <= PackNumber; j++ {
+								var part []byte
+								if j == PackNumber {
+									part = roomPrivateKey[j*MaxEncryptedSize:]
+								} else {
+									part = roomPrivateKey[j*MaxEncryptedSize : (j+1)*MaxEncryptedSize]
+								}
+								node.PutUserEncryptedPart(roomName, i, j, Encrypt(part, userPublicKey))
+							}
+						}
+						num = newNum
+					}
+					time.Sleep(50 * time.Millisecond)
+				}
+			}()
+			fmt.Println("Successfully created chatroom.")
 		case "enter":
 			if len(args) != 2 {
 				fmt.Println("Wrong argument number!")
@@ -152,20 +162,40 @@ func RunChatRoomCommandLine() {
 			}
 			roomName := args[1]
 			quitFlag := false
+
 			// get message number
-			ok, messageNumberStr := node.Get(appHash(roomName + " message number"))
+			ok, messageNumber := node.GetMessageNumber(roomName)
 			if !ok {
 				fmt.Println("Wrong room name!")
 				break
 			}
-			messageNumber, _ := strconv.Atoi(messageNumberStr)
+
+			// get room private key
+			userPrivateKey, userPublicKey := GenerateRSAKey(RSABits)
+			userNumber := node.GetUserNumber(roomName)
+			userNumber++
+			node.PutUserPublicKey(roomName, userNumber, userPublicKey)
+			node.PutUserNumber(roomName, userNumber)
+			time.Sleep(200 * time.Millisecond)
+			ciphertext := node.GetUserEncryptedPart(roomName, userNumber, 0)
+			roomPrivateKey := Decrypt(ciphertext, userPrivateKey)
+			for j := 1; j <= PackNumber; j++ {
+				ciphertext = node.GetUserEncryptedPart(roomName, userNumber, j)
+				roomPrivateKey = append(roomPrivateKey, Decrypt(ciphertext, userPrivateKey)...)
+			}
+			roomPublicKey := node.GetRoomPublicKey(roomName)
+			node.DeleteUserEncrypted(roomName, userNumber, PackNumber)
+
+			// enter message
 			enterMsg := fmt.Sprintf("[system] user [%v] entered this chat room.", name)
 			messageNumber++
-			node.Put(appHash(roomName+" message "+strconv.Itoa(messageNumber)), enterMsg)
-			node.Put(appHash(roomName+" message number"), strconv.Itoa(messageNumber))
+			enterMsg = bytes2str(Encrypt(str2bytes(enterMsg), roomPublicKey))
+			node.PutMessage(roomName, messageNumber, enterMsg)
+			node.PutMessageNumber(roomName, messageNumber)
 
 			var flagLock sync.RWMutex
 			fmt.Printf("Welcome to chatroom [%v]! Input \">help\" to get more information.\n", roomName)
+
 			// accept message
 			go func(flag *bool, number int) {
 				num := number
@@ -176,14 +206,16 @@ func RunChatRoomCommandLine() {
 					if temp {
 						break
 					}
-					innerOk, msg := node.Get(appHash(roomName + " message " + strconv.Itoa(num+1)))
+					innerOk, msg := node.GetMessage(roomName, num+1)
 					if innerOk {
 						num++
+						msg = bytes2str(Decrypt(str2bytes(msg), roomPrivateKey))
 						fmt.Println(msg)
 					}
 					time.Sleep(100 * time.Millisecond)
 				}
 			}(&quitFlag, messageNumber)
+
 			// inner command line
 			for {
 				flagLock.RLock()
@@ -210,10 +242,10 @@ func RunChatRoomCommandLine() {
 				case ">history":
 					fmt.Println("Chat history:")
 					fmt.Println("---------------------------------------------")
-					_, messageNumberStr = node.Get(appHash(roomName + " message number"))
-					messageNumber, _ = strconv.Atoi(messageNumberStr)
+					_, messageNumber = node.GetMessageNumber(roomName)
 					for i := 1; i <= messageNumber; i++ {
-						_, innerMsg := node.Get(appHash(roomName + " message " + strconv.Itoa(i)))
+						_, innerMsg := node.GetMessage(roomName, i)
+						innerMsg = bytes2str(Decrypt(str2bytes(innerMsg), roomPrivateKey))
 						fmt.Println(innerMsg)
 					}
 					fmt.Println("---------------------------------------------")
@@ -223,18 +255,22 @@ func RunChatRoomCommandLine() {
 					flagLock.Unlock()
 					fmt.Printf("Successfully leave room [%v].\n", roomName)
 					leaveMsg := fmt.Sprintf("[system] user [%v] left this chat room.\n", name)
-					_, messageNumberStr = node.Get(appHash(roomName + " message number"))
-					messageNumber, _ = strconv.Atoi(messageNumberStr)
+					_, messageNumber = node.GetMessageNumber(roomName)
 					messageNumber++
-					node.Put(appHash(roomName+" message "+strconv.Itoa(messageNumber)), leaveMsg)
-					node.Put(appHash(roomName+" message number"), strconv.Itoa(messageNumber))
+					leaveMsg = bytes2str(Encrypt(str2bytes(leaveMsg), roomPublicKey))
+					node.PutMessage(roomName, messageNumber, leaveMsg)
+					node.PutMessageNumber(roomName, messageNumber)
 				default:
+					if len(str2bytes(msg)) > MaxMessageLength {
+						fmt.Println("Message exceeded max size: 90.")
+						break
+					}
 					msg = fmt.Sprintf("[%v][%v] %v", time.Now().Format("2006-01-02 15:04:05"), name, msg)
-					_, messageNumberStr = node.Get(appHash(roomName + " message number"))
-					messageNumber, _ = strconv.Atoi(messageNumberStr)
+					_, messageNumber = node.GetMessageNumber(roomName)
 					messageNumber++
-					node.Put(appHash(roomName+" message "+strconv.Itoa(messageNumber)), msg)
-					node.Put(appHash(roomName+" message number"), strconv.Itoa(messageNumber))
+					msg = bytes2str(Encrypt(str2bytes(msg), roomPublicKey))
+					node.PutMessage(roomName, messageNumber, msg)
+					node.PutMessageNumber(roomName, messageNumber)
 				}
 			}
 		case "exit":
