@@ -9,6 +9,13 @@ import (
 	"time"
 )
 
+var (
+	yellow = NewColor("\033[1;33m")
+	cyan   = NewColor("\033[0;36m")
+	green  = NewColor("\033[0;32m")
+	red    = NewColor("\033[0;31m")
+)
+
 func GetLine() string {
 	reader := bufio.NewReader(os.Stdin)
 	text, err := reader.ReadString('\n')
@@ -51,43 +58,43 @@ func GetArgInScope(scope []string) string {
 }
 
 func RunChatRoomCommandLine() {
-	fmt.Println("Welcome to dht chat room!")
-	fmt.Println("Before using it, you are required to take a few steps to register.")
-	fmt.Println("Please input a port to continue...")
-	fmt.Println("If you have no idea what port should be chosen, just randomly pick one from 20000 to 20100.")
+	yellow.Println("Welcome to dht chat room!")
+	cyan.Println("Before using it, you are required to take a few steps to register.")
+	cyan.Println("Please input a port to continue...")
+	green.Println("If you have no idea what port should be chosen, just randomly pick one from 20000 to 20100.")
 	var port int
 	_, _ = fmt.Scanf("%d\n", &port)
 	node := NewNode(port)
 	go node.Run()
-	fmt.Println("DHT Node initialize finished.")
-	fmt.Println("Now choose to create a new dht system or joined an existing one.")
-	fmt.Println("If your friend has created one, you can join his/her system; otherwise create one for yourself.")
-	fmt.Println("Please input [create] or [join] to select.")
+	green.Println("DHT Node initialize finished.")
+	cyan.Println("Now choose to create a new dht system or joined an existing one.")
+	cyan.Println("If your friend has created one, you can join his/her system; otherwise create one for yourself.")
+	cyan.Println("Please input [create] or [join] to select.")
 	choice := GetArgInScope([]string{"create", "join"})
 	if choice == "create" {
 		node.Create()
-		fmt.Println("Successfully create a new dht system.")
+		green.Println("Successfully create a new dht system.")
 	} else {
 		joinFlag := true
 		for joinFlag {
-			fmt.Println("Input the ip address you want to join.")
+			cyan.Println("Input the ip address you want to join.")
 			var addr string
 			_, _ = fmt.Scanf("%s\n", &addr)
 			ok := node.Join(addr)
 			if ok {
-				fmt.Println("Successfully join an existing dht system.")
+				green.Println("Successfully join an existing dht system.")
 				joinFlag = false
 			} else {
-				fmt.Println("Failed to join this dht system. Please try again.")
+				red.Println("Failed to join this dht system. Please try again.")
 				node.Quit()
 			}
 		}
 	}
-	fmt.Println("Now you need a username.")
-	fmt.Println("NOTICE THAT USERNAME CAN'T BE CHANGED.")
+	cyan.Println("Now you need a username.")
+	red.Println("NOTICE THAT USERNAME CAN'T BE CHANGED.")
 	name := GetWithout([]string{"system", "System", "SYSTEM"}, "Username is same with a reserved words.")
-	fmt.Println("It's all done. Now you can continue with our chatroom application.")
-	fmt.Println("Input \"help\" to get more information.")
+	cyan.Println("It's all done. Now you can continue with our chatroom application.")
+	green.Println("Input \"help\" to get more information.")
 	flag := true
 	for flag {
 		text := GetLine()
@@ -97,36 +104,36 @@ func RunChatRoomCommandLine() {
 		}
 		switch args[0] {
 		case "help":
-			fmt.Println("Now supported command:")
-			fmt.Println("-------------------------------------------------------")
-			fmt.Println("[help]              Print help message.")
-			fmt.Println("[address]           Get your current address.")
-			fmt.Println("[new_room <name>]   Create a new chatroom named <name>.")
-			fmt.Println("[enter <name>]      Enter chatroom named <name>.")
-			fmt.Println("[exit]              Exit application.")
-			fmt.Println("-------------------------------------------------------")
-			fmt.Println("**NOTICE** When you are in a chatroom, a new command line rules is used.")
-			fmt.Println("**NOTICE** Input help in a chatroom to get more information.")
+			yellow.Println("Now supported command:")
+			yellow.Println("-------------------------------------------------------")
+			yellow.Println("[help]              Print help message.")
+			yellow.Println("[address]           Get your current address.")
+			yellow.Println("[new_room <name>]   Create a new chatroom named <name>.")
+			yellow.Println("[enter <name>]      Enter chatroom named <name>.")
+			yellow.Println("[exit]              Exit application.")
+			yellow.Println("-------------------------------------------------------")
+			cyan.Println("**NOTICE** When you are in a chatroom, a new command line rules is used.")
+			cyan.Println("**NOTICE** Input help in a chatroom to get more information.")
 		case "address":
 			if len(args) != 1 {
-				fmt.Println("Wrong argument number!")
+				red.Println("Wrong argument number!")
 				break
 			}
-			fmt.Printf("Your current address is [%v].\n", node.GetAddress())
+			cyan.Printf("Your current address is [%v].\n", node.GetAddress())
 		case "new_room":
 			if len(args) != 2 {
-				fmt.Println("Wrong argument number!")
+				red.Println("Wrong argument number!")
 				break
 			}
 			roomName := args[1]
 			have, _ := node.GetMessageNumber(roomName)
 			if have {
-				fmt.Println("This room is already exist! You can enter it directly.")
+				red.Println("This room is already exist! You can enter it directly.")
 				break
 			}
 			ok := node.NewRoom(roomName)
 			if !ok {
-				fmt.Println("Create chatroom failed.")
+				red.Println("Create chatroom failed.")
 				break
 			}
 			roomPrivateKey, roomPublicKey := GenerateRSAKey(RSABits)
@@ -154,10 +161,10 @@ func RunChatRoomCommandLine() {
 					time.Sleep(50 * time.Millisecond)
 				}
 			}()
-			fmt.Println("Successfully created chatroom.")
+			green.Println("Successfully created chatroom.")
 		case "enter":
 			if len(args) != 2 {
-				fmt.Println("Wrong argument number!")
+				red.Println("Wrong argument number!")
 				break
 			}
 			roomName := args[1]
@@ -166,7 +173,7 @@ func RunChatRoomCommandLine() {
 			// get message number
 			ok, messageNumber := node.GetMessageNumber(roomName)
 			if !ok {
-				fmt.Println("Wrong room name!")
+				red.Println("Wrong room name!")
 				break
 			}
 
@@ -194,7 +201,7 @@ func RunChatRoomCommandLine() {
 			node.PutMessageNumber(roomName, messageNumber)
 
 			var flagLock sync.RWMutex
-			fmt.Printf("Welcome to chatroom [%v]! Input \">help\" to get more information.\n", roomName)
+			green.Printf("Welcome to chatroom [%v]! Input \">help\" to get more information.\n", roomName)
 
 			// accept message
 			go func(flag *bool, number int) {
@@ -232,28 +239,28 @@ func RunChatRoomCommandLine() {
 				}
 				switch innerArgs[0] {
 				case ">help":
-					fmt.Println("Now supported command (in chatroom):")
-					fmt.Println("----------------------------------------")
-					fmt.Println("[>help]      Print help message.")
-					fmt.Println("[>history]   Show chat history.")
-					fmt.Println("[>leave]     Left this chatroom.")
-					fmt.Println("default      Send this line to chatroom.")
-					fmt.Println("----------------------------------------")
+					yellow.Println("Now supported command (in chatroom):")
+					yellow.Println("----------------------------------------")
+					yellow.Println("[>help]      Print help message.")
+					yellow.Println("[>history]   Show chat history.")
+					yellow.Println("[>leave]     Left this chatroom.")
+					yellow.Println("default      Send this line to chatroom.")
+					yellow.Println("----------------------------------------")
 				case ">history":
-					fmt.Println("Chat history:")
-					fmt.Println("---------------------------------------------")
+					cyan.Println("Chat history:")
+					cyan.Println("---------------------------------------------")
 					_, messageNumber = node.GetMessageNumber(roomName)
 					for i := 1; i <= messageNumber; i++ {
 						_, innerMsg := node.GetMessage(roomName, i)
 						innerMsg = bytes2str(Decrypt(str2bytes(innerMsg), roomPrivateKey))
 						fmt.Println(innerMsg)
 					}
-					fmt.Println("---------------------------------------------")
+					cyan.Println("---------------------------------------------")
 				case ">leave":
 					flagLock.Lock()
 					quitFlag = true
 					flagLock.Unlock()
-					fmt.Printf("Successfully leave room [%v].\n", roomName)
+					green.Printf("Successfully leave room [%v].\n", roomName)
 					leaveMsg := fmt.Sprintf("[system] user [%v] left this chat room.\n", name)
 					_, messageNumber = node.GetMessageNumber(roomName)
 					messageNumber++
@@ -262,7 +269,7 @@ func RunChatRoomCommandLine() {
 					node.PutMessageNumber(roomName, messageNumber)
 				default:
 					if len(str2bytes(msg)) > MaxMessageLength {
-						fmt.Println("Message exceeded max size: 90.")
+						red.Println("Message exceeded max size: 90.")
 						break
 					}
 					msg = fmt.Sprintf("[%v][%v] %v", time.Now().Format("2006-01-02 15:04:05"), name, msg)
@@ -275,13 +282,13 @@ func RunChatRoomCommandLine() {
 			}
 		case "exit":
 			if len(args) != 1 {
-				fmt.Println("Wrong argument number!")
+				red.Println("Wrong argument number!")
 				break
 			}
 			flag = false
-			fmt.Println("Successfully exit application. Have a nice day!")
+			green.Println("Successfully exit application. Have a nice day!")
 		default:
-			fmt.Println("Wrong command type!")
+			red.Println("Wrong command type!")
 		}
 	}
 	node.Quit()
